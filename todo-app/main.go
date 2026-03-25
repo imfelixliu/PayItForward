@@ -21,6 +21,8 @@ func main() {
 	todoHandler := handlers.NewTodoHandler(todoRepo)
 
 	r := gin.Default()
+	r.Use(middleware.RequestID())
+	r.Use(middleware.ErrorHandler())
 
 	auth := r.Group("/auth")
 	{

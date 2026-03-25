@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"todo-app/apperror"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -11,9 +12,15 @@ import (
 
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		requestID, _ := c.Get("request_id")
+
 		header := c.GetHeader("Authorization")
 		if header == "" || !strings.HasPrefix(header, "Bearer ") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid authorization header"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":       apperror.ErrUnauthorized.Code,
+				"message":    "missing or invalid authorization header",
+				"request_id": requestID,
+			})
 			return
 		}
 
@@ -28,13 +35,21 @@ func JWTAuth() gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":       apperror.ErrUnauthorized.Code,
+				"message":    "invalid or expired token",
+				"request_id": requestID,
+			})
 			return
 		}
 
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"code":       apperror.ErrUnauthorized.Code,
+				"message":    "invalid token claims",
+				"request_id": requestID,
+			})
 			return
 		}
 

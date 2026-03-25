@@ -80,6 +80,30 @@ go test ./handlers/... -v -count=1
 
 > 所有时间字段（`created_at`、`updated_at`）均为 Unix 时间戳（秒）。
 
+### 错误响应格式
+
+所有接口的错误响应统一为以下格式：
+
+```json
+{
+  "code": "TODO_NOT_FOUND",
+  "message": "todo not found",
+  "request_id": "a3f2b1c4"
+}
+```
+
+每个请求的响应头都会携带 `X-Request-ID`，可用于日志追踪。
+
+常见业务错误码：
+
+| code | HTTP 状态码 | 说明 |
+|------|------------|------|
+| INVALID_INPUT | 400 | 请求参数不合法 |
+| UNAUTHORIZED | 401 | 未认证或 token 无效 |
+| TODO_NOT_FOUND | 404 | todo 不存在 |
+| OAUTH_ERROR | 500 | GitHub OAuth 流程失败 |
+| INTERNAL_ERROR | 500 | 服务内部错误 |
+
 ### 认证流程
 
 #### 第一步：跳转 GitHub 授权
@@ -235,14 +259,18 @@ curl -X PATCH http://localhost:8080/todos/:id/complete \
 todo-app/
 ├── main.go                 # 入口，依赖组装与路由注册
 ├── config/config.go        # 数据库连接与迁移
-├── middleware/auth.go      # JWT 认证中间件
+├── apperror/error.go       # 统一业务错误类型定义
+├── middleware/
+│   ├── auth.go             # JWT 认证中间件
+│   └── error.go            # 全局错误处理与 request_id 注入
 ├── models/todo.go          # 数据模型
 ├── repository/
 │   ├── user.go             # 用户数据库访问层
 │   └── todo.go             # 待办数据库访问层
 ├── handlers/
 │   ├── auth.go             # GitHub OAuth 认证处理
-│   └── todo.go             # Todo CRUD 处理
+│   ├── todo.go             # Todo CRUD 处理
+│   └── todo_test.go        # 集成测试
 ├── .env                    # 本地环境变量（勿提交 Git）
 ├── Dockerfile
 └── docker-compose.yml

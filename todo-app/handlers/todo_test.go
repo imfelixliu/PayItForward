@@ -29,6 +29,8 @@ func setupRouter() *gin.Engine {
 	todoHandler := handlers.NewTodoHandler(todoRepo)
 
 	r := gin.New()
+	r.Use(middleware.RequestID())
+	r.Use(middleware.ErrorHandler())
 
 	auth := r.Group("/auth")
 	auth.GET("/github", authHandler.GitHubLogin)

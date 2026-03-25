@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"todo-app/apperror"
 	"todo-app/repository"
 
 	"github.com/gin-gonic/gin"
@@ -37,19 +38,19 @@ func (h *AuthHandler) GitHubLogin(c *gin.Context) {
 func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
+		c.Error(apperror.New(http.StatusBadRequest, "INVALID_INPUT", "missing code"))
 		return
 	}
 
 	accessToken, err := exchangeCodeForToken(code)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to exchange token"})
+		c.Error(apperror.New(http.StatusInternalServerError, "OAUTH_ERROR", "failed to exchange token"))
 		return
 	}
 
 	ghUser, err := fetchGitHubUser(accessToken)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch github user"})
+		c.Error(apperror.New(http.StatusInternalServerError, "OAUTH_ERROR", "failed to fetch github user"))
 		return
 	}
 
@@ -60,13 +61,13 @@ func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 
 	user, err := h.userRepo.Upsert(githubID, email, name, avatarURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user"})
+		c.Error(apperror.ErrInternal)
 		return
 	}
 
 	token, err := generateToken(user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
+		c.Error(apperror.ErrInternal)
 		return
 	}
 
