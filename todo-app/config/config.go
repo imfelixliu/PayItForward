@@ -51,6 +51,7 @@ func migrate() {
 			user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			title      VARCHAR(500) NOT NULL,
 			completed  BOOLEAN NOT NULL DEFAULT FALSE,
+			deleted_at BIGINT,
 			created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
 			updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
 		);

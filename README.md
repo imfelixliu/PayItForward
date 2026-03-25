@@ -174,6 +174,8 @@ curl -X POST http://localhost:8080/todos \
 
 #### 删除待办
 
+逻辑删除，记录不会从数据库中物理移除，仅标记 `deleted_at` 时间戳。
+
 ```bash
 curl -X DELETE http://localhost:8080/todos/:id \
   -H "Authorization: Bearer <token>"
@@ -221,6 +223,7 @@ curl -X PATCH http://localhost:8080/todos/:id/complete \
 | | user_id | INT | 外键关联 users |
 | | title | VARCHAR(500) | 待办内容 |
 | | completed | BOOLEAN | 是否完成 |
+| | deleted_at | BIGINT | 逻辑删除时间戳，NULL 表示未删除 |
 | | created_at | BIGINT | Unix 时间戳（秒） |
 | | updated_at | BIGINT | Unix 时间戳（秒） |
 

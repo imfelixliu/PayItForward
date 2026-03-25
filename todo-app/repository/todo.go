@@ -15,7 +15,9 @@ func NewTodoRepository(db *sql.DB) *TodoRepository {
 
 func (r *TodoRepository) FindByUserID(userID int) ([]models.Todo, error) {
 	rows, err := r.db.Query(
-		`SELECT id, user_id, title, completed, created_at, updated_at FROM todos WHERE user_id = $1 ORDER BY created_at DESC`,
+		`SELECT id, user_id, title, completed, created_at, updated_at
+		 FROM todos WHERE user_id = $1 AND deleted_at IS NULL
+		 ORDER BY created_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -37,15 +39,19 @@ func (r *TodoRepository) FindByUserID(userID int) ([]models.Todo, error) {
 func (r *TodoRepository) Create(userID int, title string) (models.Todo, error) {
 	var todo models.Todo
 	err := r.db.QueryRow(
-		`INSERT INTO todos (user_id, title) VALUES ($1, $2) RETURNING id, user_id, title, completed, created_at, updated_at`,
+		`INSERT INTO todos (user_id, title) VALUES ($1, $2)
+		 RETURNING id, user_id, title, completed, created_at, updated_at`,
 		userID, title,
 	).Scan(&todo.ID, &todo.UserID, &todo.Title, &todo.Completed, &todo.CreatedAt, &todo.UpdatedAt)
 	return todo, err
 }
 
+// Delete 逻辑删除，设置 deleted_at 时间戳
 func (r *TodoRepository) Delete(todoID, userID int) (bool, error) {
 	result, err := r.db.Exec(
-		`DELETE FROM todos WHERE id = $1 AND user_id = $2`, todoID, userID,
+		`UPDATE todos SET deleted_at = EXTRACT(EPOCH FROM NOW())::BIGINT
+		 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+		todoID, userID,
 	)
 	if err != nil {
 		return false, err
@@ -58,7 +64,7 @@ func (r *TodoRepository) Complete(todoID, userID int) (models.Todo, error) {
 	var todo models.Todo
 	err := r.db.QueryRow(
 		`UPDATE todos SET completed = TRUE, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT
-		 WHERE id = $1 AND user_id = $2
+		 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		 RETURNING id, user_id, title, completed, created_at, updated_at`,
 		todoID, userID,
 	).Scan(&todo.ID, &todo.UserID, &todo.Title, &todo.Completed, &todo.CreatedAt, &todo.UpdatedAt)
