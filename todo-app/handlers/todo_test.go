@@ -6,36 +6,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
+	"time"
 	"todo-app/config"
 	"todo-app/handlers"
 	"todo-app/middleware"
+	"todo-app/repository"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/lib/pq"
 )
 
 func setupRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
+
+	userRepo := repository.NewUserRepository(config.DB)
+	todoRepo := repository.NewTodoRepository(config.DB)
+	authHandler := handlers.NewAuthHandler(userRepo)
+	todoHandler := handlers.NewTodoHandler(todoRepo)
+
 	r := gin.New()
 
 	auth := r.Group("/auth")
-	auth.POST("/register", handlers.Register)
-	auth.POST("/login", handlers.Login)
+	auth.GET("/github", authHandler.GitHubLogin)
+	auth.GET("/github/callback", authHandler.GitHubCallback)
 
 	todos := r.Group("/todos", middleware.JWTAuth())
-	todos.GET("", handlers.ListTodos)
-	todos.POST("", handlers.CreateTodo)
-	todos.DELETE("/:id", handlers.DeleteTodo)
-	todos.PATCH("/:id/complete", handlers.CompleteTodo)
+	todos.GET("", todoHandler.ListTodos)
+	todos.POST("", todoHandler.CreateTodo)
+	todos.DELETE("/:id", todoHandler.DeleteTodo)
+	todos.PATCH("/:id/complete", todoHandler.CompleteTodo)
 
 	return r
 }
 
 func setupTestDB(t *testing.T) {
 	t.Helper()
-	// Requires TEST_DB_DSN env var or a running postgres instance
 	dsn := "host=localhost port=5432 user=postgres password=postgres dbname=tododb_test sslmode=disable"
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -46,42 +55,54 @@ func setupTestDB(t *testing.T) {
 	}
 	config.DB = db
 
-	// Clean slate
 	db.Exec(`DROP TABLE IF EXISTS todos`)
 	db.Exec(`DROP TABLE IF EXISTS users`)
 	config.InitDB()
 }
 
-func TestRegisterAndLogin(t *testing.T) {
+// makeTestToken 直接构造 JWT，绕过 GitHub OAuth 流程
+func makeTestToken(userID int) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "default-secret-change-in-production"
+	}
+	claims := jwt.MapClaims{
+		"user_id": userID,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+}
+
+// insertTestUser 插入测试用户，返回 user id
+func insertTestUser(t *testing.T, githubID int64) int {
+	t.Helper()
+	var id int
+	err := config.DB.QueryRow(
+		`INSERT INTO users (github_id, name) VALUES ($1, $2)
+		 ON CONFLICT (github_id) DO UPDATE SET name = EXCLUDED.name
+		 RETURNING id`,
+		githubID, "testuser",
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("failed to insert test user: %v", err)
+	}
+	return id
+}
+
+func TestListTodosEmpty(t *testing.T) {
 	setupTestDB(t)
 	r := setupRouter()
 
-	body, _ := json.Marshal(map[string]string{"email": "test@example.com", "password": "secret123"})
+	userID := insertTestUser(t, 1001)
+	token, _ := makeTestToken(userID)
 
-	// Register
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/auth/register", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Login
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
+	req, _ := http.NewRequest(http.MethodGet, "/todos", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["token"] == "" {
-		t.Fatal("expected token in response")
 	}
 }
 
@@ -89,29 +110,14 @@ func TestTodoCRUD(t *testing.T) {
 	setupTestDB(t)
 	r := setupRouter()
 
-	// Register + login to get token
-	creds, _ := json.Marshal(map[string]string{"email": "crud@example.com", "password": "secret123"})
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/auth/register", bytes.NewBuffer(creds))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(creds))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-
-	var loginResp map[string]string
-	json.NewDecoder(w.Body).Decode(&loginResp)
-	token := loginResp["token"]
-
+	userID := insertTestUser(t, 1002)
+	token, _ := makeTestToken(userID)
 	authHeader := "Bearer " + token
 
-	// Create todo
+	// Create
 	todoBody, _ := json.Marshal(map[string]string{"title": "Buy groceries"})
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, "/todos", bytes.NewBuffer(todoBody))
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/todos", bytes.NewBuffer(todoBody))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", authHeader)
 	r.ServeHTTP(w, req)
@@ -124,7 +130,7 @@ func TestTodoCRUD(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&createResp)
 	todoID := int(createResp["todo"]["id"].(float64))
 
-	// List todos
+	// List
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodGet, "/todos", nil)
 	req.Header.Set("Authorization", authHeader)
@@ -134,9 +140,9 @@ func TestTodoCRUD(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Complete todo
+	// Complete
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPatch, "/todos/"+itoa(todoID)+"/complete", nil)
+	req, _ = http.NewRequest(http.MethodPatch, "/todos/"+strconv.Itoa(todoID)+"/complete", nil)
 	req.Header.Set("Authorization", authHeader)
 	r.ServeHTTP(w, req)
 
@@ -144,9 +150,9 @@ func TestTodoCRUD(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Delete todo
+	// Delete
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodDelete, "/todos/"+itoa(todoID), nil)
+	req, _ = http.NewRequest(http.MethodDelete, "/todos/"+strconv.Itoa(todoID), nil)
 	req.Header.Set("Authorization", authHeader)
 	r.ServeHTTP(w, req)
 
@@ -155,6 +161,15 @@ func TestTodoCRUD(t *testing.T) {
 	}
 }
 
-func itoa(i int) string {
-	return strconv.Itoa(i)
+func TestUnauthorizedAccess(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/todos", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
 }
