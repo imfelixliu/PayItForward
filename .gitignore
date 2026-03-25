@@ -1,0 +1,16 @@
+# 数据库数据
+todo-app/pgdata/
+
+# 编译产物
+server
+
+# 环境变量
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
