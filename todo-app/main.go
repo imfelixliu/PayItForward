@@ -6,6 +6,7 @@ import (
 	"todo-app/config"
 	"todo-app/handlers"
 	"todo-app/middleware"
+	"todo-app/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,20 +14,26 @@ import (
 func main() {
 	config.InitDB()
 
+	userRepo := repository.NewUserRepository(config.DB)
+	todoRepo := repository.NewTodoRepository(config.DB)
+
+	authHandler := handlers.NewAuthHandler(userRepo)
+	todoHandler := handlers.NewTodoHandler(todoRepo)
+
 	r := gin.Default()
 
 	auth := r.Group("/auth")
 	{
-		auth.GET("/github", handlers.GitHubLogin)
-		auth.GET("/github/callback", handlers.GitHubCallback)
+		auth.GET("/github", authHandler.GitHubLogin)
+		auth.GET("/github/callback", authHandler.GitHubCallback)
 	}
 
 	todos := r.Group("/todos", middleware.JWTAuth())
 	{
-		todos.GET("", handlers.ListTodos)
-		todos.POST("", handlers.CreateTodo)
-		todos.DELETE("/:id", handlers.DeleteTodo)
-		todos.PATCH("/:id/complete", handlers.CompleteTodo)
+		todos.GET("", todoHandler.ListTodos)
+		todos.POST("", todoHandler.CreateTodo)
+		todos.DELETE("/:id", todoHandler.DeleteTodo)
+		todos.PATCH("/:id/complete", todoHandler.CompleteTodo)
 	}
 
 	port := os.Getenv("PORT")

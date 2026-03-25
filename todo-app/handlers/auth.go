@@ -9,16 +9,22 @@ import (
 	"os"
 	"strings"
 	"time"
-	"todo-app/config"
-	"todo-app/models"
+	"todo-app/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// GitHubLogin godoc
+type AuthHandler struct {
+	userRepo *repository.UserRepository
+}
+
+func NewAuthHandler(userRepo *repository.UserRepository) *AuthHandler {
+	return &AuthHandler{userRepo: userRepo}
+}
+
 // GET /auth/github
-func GitHubLogin(c *gin.Context) {
+func (h *AuthHandler) GitHubLogin(c *gin.Context) {
 	clientID := os.Getenv("GITHUB_CLIENT_ID")
 	redirectURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&scope=user:email",
@@ -27,9 +33,8 @@ func GitHubLogin(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
-// GitHubCallback godoc
 // GET /auth/github/callback
-func GitHubCallback(c *gin.Context) {
+func (h *AuthHandler) GitHubCallback(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
@@ -53,7 +58,7 @@ func GitHubCallback(c *gin.Context) {
 	email, _ := ghUser["email"].(string)
 	avatarURL, _ := ghUser["avatar_url"].(string)
 
-	user, err := upsertUser(githubID, email, name, avatarURL)
+	user, err := h.userRepo.Upsert(githubID, email, name, avatarURL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert user"})
 		return
@@ -117,28 +122,6 @@ func fetchGitHubUser(accessToken string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return user, nil
-}
-
-func upsertUser(githubID int64, email, name, avatarURL string) (models.User, error) {
-	var user models.User
-	err := config.DB.QueryRow(`
-		INSERT INTO users (github_id, email, name, avatar_url)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (github_id) DO UPDATE
-		  SET email = EXCLUDED.email,
-		      name = EXCLUDED.name,
-		      avatar_url = EXCLUDED.avatar_url
-		RETURNING id, github_id, COALESCE(email,''), COALESCE(name,''), COALESCE(avatar_url,''), created_at
-	`, githubID, nullableString(email), name, avatarURL,
-	).Scan(&user.ID, &user.GithubID, &user.Email, &user.Name, &user.AvatarURL, &user.CreatedAt)
-	return user, err
-}
-
-func nullableString(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func generateToken(userID int) (string, error) {
