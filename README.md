@@ -230,14 +230,16 @@ curl -X PATCH http://localhost:8080/todos/:id/complete \
 
 ```
 todo-app/
-├── main.go                 # 入口，路由注册
+├── main.go                 # 入口，依赖组装与路由注册
 ├── config/config.go        # 数据库连接与迁移
 ├── middleware/auth.go      # JWT 认证中间件
 ├── models/todo.go          # 数据模型
+├── repository/
+│   ├── user.go             # 用户数据库访问层
+│   └── todo.go             # 待办数据库访问层
 ├── handlers/
-│   ├── auth.go             # GitHub OAuth 认证
-│   ├── todo.go             # CRUD 处理器
-│   └── todo_test.go        # 集成测试
+│   ├── auth.go             # GitHub OAuth 认证处理
+│   └── todo.go             # Todo CRUD 处理
 ├── .env                    # 本地环境变量（勿提交 Git）
 ├── Dockerfile
 └── docker-compose.yml
